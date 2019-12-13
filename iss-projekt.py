@@ -24,10 +24,15 @@ q2.wav: reorganization
 
 
 class Record:
-    def __init__(self, file_name, data, time_axis):
-        self.name = file_name
-        self.data = data
-        self.time_axis = time_axis
+    # def __init__(self, file_name, data, time_axis, spectrum, signal, scores_q1, scores_q2):
+    def __init__(self):
+        self.name = None
+        self.data = None
+        self.time_axis = None
+        self.spectrum = None
+        self.signal = None
+        self.scores_q1 = None
+        self.scores_q2 = None
 
 
 def prep_files():
@@ -38,7 +43,9 @@ def prep_files():
         if curr_file[-3:] != 'wav':
             curr_directory.remove(curr_file)
 
+    # TODO remove in submission
     curr_directory.remove('Pipfile')
+    curr_directory.remove('.gitignore')
 
     return curr_directory
 
@@ -97,33 +104,38 @@ def plot_signal_and_spectrum(data, fs, jak_dlouho, odkud):
     plt.show()
 
 
-def plot_spectrogram(data, fs, show_plot):
+def create_spectrogram(data, fs):
     length_per_segment = int(0.025 * fs)  # 400 samples
     length_overlap = int(0.015 * fs)
     nfft = 512
     f, t, sgr = spectrogram(data, fs, nperseg=length_per_segment, noverlap=length_overlap, nfft=nfft)
     # prevod na PSD
     # (ve spektrogramu se obcas objevuji nuly, ktere se nelibi logaritmu, proto +1e-20)
-    if show_plot:
-        sgr_log = 10 * np.log10(sgr + 1e-20)
-        plt.figure(figsize=(9, 3))
-        plt.pcolormesh(t, f, sgr_log)
-        plt.gca().set_xlabel('Cas [s]')
-        plt.gca().set_ylabel('Frekvence [Hz]')
-        cbar = plt.colorbar()
-        cbar.set_label('Spektralni hustota vykonu [dB]', rotation=270, labelpad=15)
-        plt.tight_layout()
-        plt.show()
 
     return f, t, sgr
 
 
+def create_spectrogram_plot(f, t, sgr):
+    sgr_log = 10 * np.log10(sgr + 1e-20)
+    plt.figure(figsize=(9, 3))
+    plt.pcolormesh(t, f, sgr_log)
+    plt.gca().set_xlabel('Cas [s]')
+    plt.gca().set_ylabel('Frekvence [Hz]')
+    cbar = plt.colorbar()
+    cbar.set_label('Spektralni hustota vykonu [dB]', rotation=270, labelpad=15)
+    plt.tight_layout()
+
+    return plt
+
+
 def process_file(currentFile):
+    res = Record()
     data, fs = sf.read(currentFile)
 
     # plot_signal_and_spectrum(data, fs, jak_dlouho, odkud)
 
-    sgr_freq, sgr_time, sgr_data = plot_spectrogram(data, fs, False)
+    sgr_freq, sgr_time, sgr_data = create_spectrogram(data, fs)
+    res.spectrum = create_spectrogram_plot(sgr_freq, sgr_time, sgr_data)
 
     # sgr_freq -> Axis Y
     # sgr_time -> Axis X
@@ -144,10 +156,15 @@ def process_file(currentFile):
             for j in range(0, divide_total_line_count_by):
                 data_aggregated_to_line_count[i, t] += sgr_data[i*divide_total_line_count_by + j, t]
 
-    return Record(currentFile, data_aggregated_to_line_count, sgr_time)
+    # currentFile, data_aggregated_to_line_count, sgr_time
+    res.name = current_file
+    res.time_axis = sgr_time
+    res.data = data_aggregated_to_line_count
+
+    return res
 
 
-def do_queries_by_example(q, all_sentences):
+def do_queries_by_example(q, all_sentences, query_number):
 
     scores = []
 
@@ -161,7 +178,14 @@ def do_queries_by_example(q, all_sentences):
         current_score = do_query(q, s)
 
         scores.append(current_score)
+        if query_number == 1:
+            s.scores_q1 = current_score
+        elif query_number == 2:
+            s.scores_q1 = current_score
+        else:
+            print('invalid query number')
 
+    # currently not needed, scores are saved within Record objects
     return scores
 
 
@@ -196,7 +220,7 @@ def do_query(q, s):
 
         scores_current[j] /= q_len
 
-    print(s.name + '->max:', max(scores_current))
+    print(s.name + ' max=:', max(scores_current), 'min:', min(scores_current))
     return scores_current
 
 
@@ -211,29 +235,39 @@ def plot_score(query_name, sentence_name, sentence_time_axis, score):
 
     # plt.tight_layout()
 
-    plt.show()
+    # plt.show()
+    return plt
 
 
 """
 Main
 """
 
-sentences = []
-query1 = Record(None, None, None)
-query2 = Record(None, None, None)
+"""
+TODO
+step size in QbE
+"""
+query1_name = 'q1.wav'
+query2_name = 'q2.wav'
+
+sentences = []  # list of Record objects
+query1 = Record()
+query2 = Record()
 
 curr_dir = prep_files()
 
 for current_file in curr_dir:
-    if current_file == 'q1.wav':
+    if current_file == query1_name:
         query1 = process_file(current_file)
-    elif current_file == 'q2.wav':
+    elif current_file == query2_name:
         query2 = process_file(current_file)
     else:
         sentences.append(process_file(current_file))
 
-scores1 = do_queries_by_example(query1, sentences)
-# scores2 = do_queries_by_example(query2, sentences)
+
+
+scores1 = do_queries_by_example(query1, sentences, 1)
+# scores2 = do_queries_by_example(query2, sentences, 2)
 
 for m in range(0, len(scores1)):
     plot_score(query1.name, sentences[m].name, sentences[m].time_axis, scores1[m])
