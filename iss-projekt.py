@@ -24,13 +24,23 @@ q2.wav: reorganization
 
 
 class Record:
-    # def __init__(self, file_name, data, time_axis, spectrum, signal, scores_q1, scores_q2):
     def __init__(self):
         self.name = None
+
         self.data = None
+        self.fs = None
+
+        self.data_aggr = None
+
         self.time_axis = None
-        self.spectrum = None
+
+        self.spectrum_freq = None
+        self.spectrum_time = None
+        self.spectrum_data = None
+        self.spectrum_data_no_dc = None
+
         self.signal = None
+
         self.scores_q1 = None
         self.scores_q2 = None
 
@@ -50,10 +60,11 @@ def prep_files():
     return curr_directory
 
 
+"""
 def plot_signal_segment(data, fs, time_start, time_how_long):
-    """
+    ""\"
         Plot segment of signal
-    """
+    ""\"
 
     time_end = time_start + time_how_long
 
@@ -78,7 +89,7 @@ def plot_signal_segment(data, fs, time_start, time_how_long):
     plt.show()
 
 
-"""
+
 def plot_signal_whole(data, fs: int) -> plt:
     ""\"
         Plot whole signal
@@ -91,13 +102,13 @@ def plot_signal_whole(data, fs: int) -> plt:
     plt.gca().set_xlabel('$t[s]$')
     plt.gca().set_title('Zvukovy signal:')
     plt.tight_layout()
-"""
+
 
 
 def plot_signal_spectrum(data, fs: int) -> plt:
-    """
+    ""\"
     Plot segment of signal and its frequency characteristics (spectrum)
-    """
+    ""\"
 
     data_ffted = np.fft.fft(data)
 
@@ -113,20 +124,8 @@ def plot_signal_spectrum(data, fs: int) -> plt:
     plt.tight_layout()
     # plt.show()
     return plt
-
-
-def create_spectrogram(data, fs: int):
-    length_per_segment = int(0.025 * fs)  # 400 samples
-    length_overlap = int(0.015 * fs)
-    nfft = 512
-    f, t, sgr = spectrogram(data, fs, nperseg=length_per_segment, noverlap=length_overlap, nfft=nfft)
-    # prevod na PSD
-    # (ve spektrogramu se obcas objevuji nuly, ktere se nelibi logaritmu, proto +1e-20)
-
-    return f, t, sgr
-
-
-"""
+    
+    
 def create_spectrogram_plot(f, t, sgr):
     sgr_log = 10 * np.log10(sgr + 1e-20)
     plt.figure(figsize=(9, 3))
@@ -141,66 +140,83 @@ def create_spectrogram_plot(f, t, sgr):
 """
 
 
-def process_file(currentFile):
-    res = Record()
-    data, fs = sf.read(currentFile)
+def create_spectrogram(data, fs: int):
+    length_per_segment = int(0.025 * fs)  # 400 samples
+    length_overlap = int(0.015 * fs)
+    nfft = 512
+    f, t, sgr = spectrogram(data, fs, nperseg=length_per_segment, noverlap=length_overlap, nfft=nfft)
+    # prevod na PSD
+    # (ve spektrogramu se obcas objevuji nuly, ktere se nelibi logaritmu, proto +1e-20)
 
+    return f, t, sgr
+
+
+def read_file(currentFile):
+    """
+
+        Read signal
+
+        Create spectrogram
+
+        Reduce spectrum matrix precision (compress timeframes)
+
+    """
+    file = Record()
+    file.data, file.fs = sf.read(currentFile)
+
+    file.spectrum_freq, file.spectrum_time, file.spectrum_data = create_spectrogram(file.data, file.fs)
+
+    # Delete DC signal
+
+    file.spectrum_data_no_dc = np.delete(file.spectrum_data, 0, 0)
+    #                                   (Object, Index, Axis)
+
+    aggregate_file_data(file, file.spectrum_freq, file.spectrum_time, file.spectrum_data)
+
+    return file
+
+
+def process_file(file):
     fig, (plot_signal, plot_sgr, plot_scores) = plt.subplots(3)
 
     """
     Plot signal
     """
-    t = np.linspace(0, len(data) / fs, num=len(data))
+    t = np.linspace(0, len(file.data) / file.fs, num=len(file.data))
 
-    plot_signal.plot(t, data)
+    plot_signal.plot(t, file.data)  # TODO file.time_axis
     plot_signal.set_xlabel('$t [s]$')
     plot_signal.set_ylim([-1, 1])
-    plot_signal.set_title(currentFile)
+    plot_signal.set_title(file.name)
 
     """
     Signal spectrogram 
     """
-    sgr_freq, sgr_time, sgr_data = create_spectrogram(data, fs)
-    sgr_log = 10 * np.log10(sgr_data + 1e-20)
+    sgr_log = 10 * np.log10(file.spectrum_data + 1e-20)
 
     # sgr_freq -> Axis Y
     # sgr_time -> Axis X
 
-    plot_sgr.pcolormesh(sgr_time, sgr_freq, sgr_log)
+    plot_sgr.pcolormesh(file.spectrum_time, file.spectrum_freq, sgr_log)
     plot_sgr.set_xlabel('$t [s]$')
     plot_sgr.set_ylabel('$f [Hz]$')
 
     fig.tight_layout()
     fig.show()
 
-    # Delete DC signal
 
-    sgr_data = np.delete(sgr_data, 0, 0)
-    #                   (Object, Index, Axis)
-
-    """
-    Reduce spectrum matrix precision (compress timeframes)
-    """
+def aggregate_file_data(file, sgr_freq, sgr_time, sgr_data):
     target_line_count = 16
-
     divide_total_line_count_by = len(sgr_freq) // target_line_count
-
-    data_aggregated_to_line_count = np.zeros((target_line_count, len(sgr_time)))
+    file.data_aggr = np.zeros((target_line_count, len(sgr_time)))
 
     for t in range(0, len(sgr_time)):
         for i in range(0, target_line_count):
             for j in range(0, divide_total_line_count_by):
-                data_aggregated_to_line_count[i, t] += sgr_data[i * divide_total_line_count_by + j, t]
-
-    res.name = current_file
-    res.time_axis = sgr_time
-    res.data = data_aggregated_to_line_count
-
-    return res
+                file.data_aggr[i, t] += sgr_data[i * divide_total_line_count_by + j, t]
 
 
 def do_queries_by_example(q, all_sentences, query_number):
-
     scores = []
 
     s_count = len(all_sentences)
@@ -208,7 +224,6 @@ def do_queries_by_example(q, all_sentences, query_number):
     for k in range(0, s_count):
 
         s = all_sentences[k]
-        # print(s.name, ':', len(s.data[1, :]))
 
         current_score = do_query(q, s)
 
@@ -216,7 +231,7 @@ def do_queries_by_example(q, all_sentences, query_number):
         if query_number == 1:
             s.scores_q1 = current_score
         elif query_number == 2:
-            s.scores_q1 = current_score
+            s.scores_q2 = current_score
         else:
             print('invalid query number')
 
@@ -225,8 +240,9 @@ def do_queries_by_example(q, all_sentences, query_number):
 
 
 def do_query(q, s):
-    q_len = len(q.data[0, :])
-    s_len = len(s.data[0, :])
+    q_len = len(q.spectrum_data_no_dc[0, :])
+    s_len = len(s.spectrum_data_no_dc[0, :])
+    # TODO propagating spectrum_data_no_dc name changes, finished here
 
     max_index = s_len - q_len - 1
 
@@ -260,6 +276,7 @@ def do_query(q, s):
 
 
 def plot_score(query_name, sentence_name, sentence_time_axis, score):
+    # plt.tight_layout()
 
     plt.plot(sentence_time_axis, score)
 
@@ -267,8 +284,6 @@ def plot_score(query_name, sentence_name, sentence_time_axis, score):
     plt.gca().set_ylabel('Podobnost [nevimco]')
     plt.ylim([-0.1, 1])
     plt.title('%s in %s' % (query_name, sentence_name))
-
-    # plt.tight_layout()
 
     # plt.show()
     return plt
@@ -293,11 +308,11 @@ curr_dir = prep_files()
 
 for current_file in curr_dir:
     if current_file == query1_name:
-        query1 = process_file(current_file)
+        query1 = read_file(current_file)
     elif current_file == query2_name:
-        query2 = process_file(current_file)
+        query2 = read_file(current_file)
     else:
-        sentences.append(process_file(current_file))
+        sentences.append(read_file(current_file))
 
 scores1 = do_queries_by_example(query1, sentences, 1)
 # scores2 = do_queries_by_example(query2, sentences, 2)
