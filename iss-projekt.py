@@ -54,57 +54,68 @@ def plot_signal_segment(data, fs, time_start, time_how_long):
     """
         Plot segment of signal
     """
-    odkud_vzorky = int(time_start * fs)
-    pokud_vzorky = int((time_start + time_how_long) * fs)
 
-    data_segment = data[odkud_vzorky:pokud_vzorky]
-    segment_len = data_segment.size
+    time_end = time_start + time_how_long
 
-    maxval = (len(data) + fs) / fs
-    # print(maxval)
+    samples_start = int(time_start * fs)
+    samples_count = int(time_how_long * fs)
 
-    t = np.linspace(0, maxval, num=len(data))
-    # print(t.size)
+    samples_end = samples_start + samples_count
+
+    if len(data) < samples_end:
+        print('Warning: segment out of data bounds')
+        exit(1)
+
+    data_segment = data[samples_start:samples_start + samples_count]
+
+    t = np.linspace(time_start, time_end, num=samples_count)
+
     plt.figure(figsize=(6, 3))
-    plt.plot(t, data)
+    plt.plot(t, data_segment)
     plt.gca().set_xlabel('$t[s]$')
-    plt.gca().set_title('Zvukovy signal: ')
+    plt.gca().set_title('Zvukovy signal[%f:%f]: ' % (time_start, time_end))
     plt.tight_layout()
     plt.show()
 
-    return data_segment
+
+"""
+def plot_signal_whole(data, fs: int) -> plt:
+    ""\"
+        Plot whole signal
+    ""\"
+
+    t = np.linspace(0, len(data) / fs, num=len(data))
+
+    plt.figure(figsize=(6, 3))
+    plt.plot(t, data)
+    plt.gca().set_xlabel('$t[s]$')
+    plt.gca().set_title('Zvukovy signal:')
+    plt.tight_layout()
+"""
 
 
-def plot_signal_and_spectrum(data, fs, jak_dlouho, odkud):
+def plot_signal_spectrum(data, fs: int) -> plt:
     """
     Plot segment of signal and its frequency characteristics (spectrum)
     """
 
-    data_segment = plot_signal_segment(data, fs, odkud, jak_dlouho)
-    s_seg_spec = np.fft.fft(data_segment)
+    data_ffted = np.fft.fft(data)
 
-    G = 10 * np.log10(1 / data_segment.size * np.abs(s_seg_spec) ** 2 + 1e-20)
+    data_log_scale = 10 * np.log10(1 / data.size * np.abs(data_ffted) ** 2 + 1e-20)
 
-    t = np.linspace(0, data_segment.size / fs, num=data_segment.size)
-    f = np.linspace(0, G.size / data_segment.size * fs, num=G.size)
-
-    _, plots = plt.subplots(2, 1)
-
-    plots[0].plot(t + odkud, data_segment)
-    plots[0].set_xlabel('$t[s]$')
-    plots[0].set_title('Segment signalu $s$')
-    plots[0].grid(alpha=0.5, linestyle='--')
+    freq_axis = np.linspace(0, data_log_scale.size / data.size * fs, num=data_log_scale.size)
 
     # zobrazujeme prvni pulku spektra
-    plots[1].plot(f[:f.size // 2 + 1], G[:G.size // 2 + 1])
-    plots[1].set_xlabel('$f[Hz]$')
-    plots[1].set_title('Spektralni hustota vykonu [dB]')
-    plots[1].grid(alpha=0.5, linestyle='--')
+    plt.plot(freq_axis[:freq_axis.size // 2 + 1], data_log_scale[:data_log_scale.size // 2 + 1])
+    plt.xlabel('$f[Hz]$')
+    plt.title('Spektralni hustota vykonu [dB]')
+    plt.grid(alpha=0.5, linestyle='--')
     plt.tight_layout()
-    plt.show()
+    # plt.show()
+    return plt
 
 
-def create_spectrogram(data, fs):
+def create_spectrogram(data, fs: int):
     length_per_segment = int(0.025 * fs)  # 400 samples
     length_overlap = int(0.015 * fs)
     nfft = 512
@@ -115,6 +126,7 @@ def create_spectrogram(data, fs):
     return f, t, sgr
 
 
+"""
 def create_spectrogram_plot(f, t, sgr):
     sgr_log = 10 * np.log10(sgr + 1e-20)
     plt.figure(figsize=(9, 3))
@@ -126,25 +138,49 @@ def create_spectrogram_plot(f, t, sgr):
     plt.tight_layout()
 
     return plt
+"""
 
 
 def process_file(currentFile):
     res = Record()
     data, fs = sf.read(currentFile)
 
-    # plot_signal_and_spectrum(data, fs, jak_dlouho, odkud)
+    fig, (plot_signal, plot_sgr, plot_scores) = plt.subplots(3)
 
+    """
+    Plot signal
+    """
+    t = np.linspace(0, len(data) / fs, num=len(data))
+
+    plot_signal.plot(t, data)
+    plot_signal.set_xlabel('$t [s]$')
+    plot_signal.set_ylim([-1, 1])
+    plot_signal.set_title(currentFile)
+
+    """
+    Signal spectrogram 
+    """
     sgr_freq, sgr_time, sgr_data = create_spectrogram(data, fs)
-    res.spectrum = create_spectrogram_plot(sgr_freq, sgr_time, sgr_data)
+    sgr_log = 10 * np.log10(sgr_data + 1e-20)
 
     # sgr_freq -> Axis Y
     # sgr_time -> Axis X
+
+    plot_sgr.pcolormesh(sgr_time, sgr_freq, sgr_log)
+    plot_sgr.set_xlabel('$t [s]$')
+    plot_sgr.set_ylabel('$f [Hz]$')
+
+    fig.tight_layout()
+    fig.show()
 
     # Delete DC signal
 
     sgr_data = np.delete(sgr_data, 0, 0)
     #                   (Object, Index, Axis)
 
+    """
+    Reduce spectrum matrix precision (compress timeframes)
+    """
     target_line_count = 16
 
     divide_total_line_count_by = len(sgr_freq) // target_line_count
@@ -154,9 +190,8 @@ def process_file(currentFile):
     for t in range(0, len(sgr_time)):
         for i in range(0, target_line_count):
             for j in range(0, divide_total_line_count_by):
-                data_aggregated_to_line_count[i, t] += sgr_data[i*divide_total_line_count_by + j, t]
+                data_aggregated_to_line_count[i, t] += sgr_data[i * divide_total_line_count_by + j, t]
 
-    # currentFile, data_aggregated_to_line_count, sgr_time
     res.name = current_file
     res.time_axis = sgr_time
     res.data = data_aggregated_to_line_count
@@ -190,8 +225,8 @@ def do_queries_by_example(q, all_sentences, query_number):
 
 
 def do_query(q, s):
-    q_len = len(q.data[1, :])
-    s_len = len(s.data[1, :])
+    q_len = len(q.data[0, :])
+    s_len = len(s.data[0, :])
 
     max_index = s_len - q_len - 1
 
@@ -264,54 +299,11 @@ for current_file in curr_dir:
     else:
         sentences.append(process_file(current_file))
 
-
-
 scores1 = do_queries_by_example(query1, sentences, 1)
 # scores2 = do_queries_by_example(query2, sentences, 2)
 
+# for i in sentences:
+#     show all their plots
+
 for m in range(0, len(scores1)):
     plot_score(query1.name, sentences[m].name, sentences[m].time_axis, scores1[m])
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
