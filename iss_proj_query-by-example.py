@@ -162,8 +162,8 @@ def do_queries_by_example(q, all_sentences, query_number):
 
 
 def find_peaks_in_scores(sentences):
-    min_height = 0.5
-    pointiness = 0.005
+    min_height = 0.5  # alespon polovicni "jistota" = korelace
+    pointiness = 0.005  # spise empiricka hodnota
     for file in sentences:
         file.peaks1, properties1 = find_peaks(file.scores_q1, height=min_height, threshold=pointiness)
         file.peaks2, properties2 = find_peaks(file.scores_q2, height=min_height, threshold=pointiness)
@@ -187,7 +187,7 @@ def extract_hits_from_query(query, sentence, peaks):
 
 
 def plot_results(file):
-    fig, (plot_signal, plot_sgr, plot_scores) = plt.subplots(3, 1)
+    fig, (plot_signal, plot_sgr, plot_scores) = plt.subplots(3, 1, figsize=(8, 6))
 
     """
     Plot signal
@@ -223,13 +223,41 @@ def plot_results(file):
     plot_scores.set_ylabel('scores')
     plot_scores.set_ylim([-0.1, 1])
     plot_scores.set_xlim(left=0, right=max(file.time_axis))
-    plt.legend([query1_plot, query2_plot], ['instruments', 'reorganization'])
+
+    legend_plots = [query1_plot, query2_plot]
+    legend_texts = ['instruments (q1)', 'reorganization (q2)']
 
     """
-    Plotting peaks
+    Plotting peaks and hits
     """
-    peaks1_plot, = plot_scores.plot(spectrum_time_stepsize[file.peaks1], file.scores_q1[file.peaks1], "x")
-    peaks2_plot, = plot_scores.plot(spectrum_time_stepsize[file.peaks2], file.scores_q2[file.peaks2], "*")
+
+    if file.peaks1 is not None and len(file.peaks1) > 0:
+        peaks1_plot, = plot_scores.plot(spectrum_time_stepsize[file.peaks1], file.scores_q1[file.peaks1], "x")
+        q1_len_in_scores = len(query1.spectrum_time) * max(file.time_axis) / (len(file.spectrum_time))
+
+        hits1_plot = plot_scores.hlines(y=file.scores_q1[file.peaks1],
+                                        xmin=spectrum_time_stepsize[file.peaks1],
+                                        xmax=spectrum_time_stepsize[file.peaks1] + q1_len_in_scores,
+                                        colors=peaks1_plot.get_color())
+
+        legend_plots.append(hits1_plot)
+        legend_texts.append('q1 hits')
+
+    if file.peaks2 is not None and len(file.peaks2) > 0:
+        peaks2_plot, = plot_scores.plot(spectrum_time_stepsize[file.peaks2], file.scores_q2[file.peaks2], "*")
+        q2_len_in_scores = len(query2.spectrum_time) * max(file.time_axis) / (len(file.spectrum_time))
+
+        hits2_plot = plot_scores.hlines(y=file.scores_q2[file.peaks2],
+                                        xmin=spectrum_time_stepsize[file.peaks2],
+                                        xmax=spectrum_time_stepsize[file.peaks2] + q2_len_in_scores,
+                                        colors=peaks2_plot.get_color())
+
+        legend_plots.append(hits2_plot)
+        legend_texts.append('q2 hits')
+
+    plt.legend(legend_plots,
+               legend_texts,
+               loc='upper left')
 
     fig.show()
     fig.savefig('plots/' + file.name + '.png')
