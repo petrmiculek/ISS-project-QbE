@@ -65,110 +65,12 @@ def read_wav_files(path):
     return wav_files
 
 
-"""
-# Tons of unused code
-
-def plot_signal_segment(data, fs, time_start, time_how_long):
-    ""\"
-        Plot segment of signal
-    ""\"
-
-    time_end = time_start + time_how_long
-
-    samples_start = int(time_start * fs)
-    samples_count = int(time_how_long * fs)
-
-    samples_end = samples_start + samples_count
-
-    if len(data) < samples_end:
-        print('Warning: segment out of data bounds')
-        exit(1)
-
-    data_segment = data[samples_start:samples_start + samples_count]
-
-    t = np.linspace(time_start, time_end, num=samples_count)
-
-    plt.figure(figsize=(6, 3))
-    plt.plot(t, data_segment)
-    plt.gca().set_xlabel('$t[s]$')
-    plt.gca().set_title('Zvukovy signal[%f:%f]: ' % (time_start, time_end))
-    plt.tight_layout()
-    plt.show()
-
-
-
-def plot_signal_whole(data, fs: int) -> plt:
-    ""\"
-        Plot whole signal
-    ""\"
-
-    t = np.linspace(0, len(data) / fs, num=len(data))
-
-    plt.figure(figsize=(6, 3))
-    plt.plot(t, data)
-    plt.gca().set_xlabel('$t[s]$')
-    plt.gca().set_title('Zvukovy signal:')
-    plt.tight_layout()
-
-
-
-def plot_signal_spectrum(data, fs: int) -> plt:
-    ""\"
-    Plot segment of signal and its frequency characteristics (spectrum)
-    ""\"
-
-    data_ffted = np.fft.fft(data)
-
-    data_log_scale = 10 * np.log10(1 / data.size * np.abs(data_ffted) ** 2 + 1e-20)
-
-    freq_axis = np.linspace(0, data_log_scale.size / data.size * fs, num=data_log_scale.size)
-
-    # zobrazujeme prvni pulku spektra
-    plt.plot(freq_axis[:freq_axis.size // 2 + 1], data_log_scale[:data_log_scale.size // 2 + 1])
-    plt.xlabel('$f[Hz]$')
-    plt.title('Spektralni hustota vykonu [dB]')
-    plt.grid(alpha=0.5, linestyle='--')
-    plt.tight_layout()
-    # plt.show()
-    return plt
-    
-    
-def create_spectrogram_plot(f, t, sgr):
-    sgr_log = 10 * np.log10(sgr + 1e-20)
-    plt.figure(figsize=(9, 3))
-    plt.pcolormesh(t, f, sgr_log)
-    plt.gca().set_xlabel('Cas [s]')
-    plt.gca().set_ylabel('Frekvence [Hz]')
-    cbar = plt.colorbar()
-    cbar.set_label('Spektralni hustota vykonu [dB]', rotation=270, labelpad=15)
-    plt.tight_layout()
-
-    return plt
-    
-    
-def plot_score(query_name, sentence_name, sentence_time_axis, score):
-    # plt.tight_layout()
-
-    plt.plot(sentence_time_axis, score)
-
-    plt.gca().set_xlabel('Cas [s]')
-    plt.gca().set_ylabel('Podobnost [nevimco]')
-    plt.ylim([-0.1, 1])
-    plt.xlim(left=0)
-    plt.title('%s in %s' % (query_name, sentence_name))
-
-    plt.show()
-    return plt
-"""
-
-
 def create_spectrogram(data, fs: int):
     # predefined values given by assignment
     length_per_segment = int(0.025 * fs)  # 400 samples
     length_overlap = int(0.015 * fs)
     nfft = 512
 
-    # the do-it-all piece of code
     f, t, sgr = spectrogram(data, fs, nperseg=length_per_segment, noverlap=length_overlap, nfft=nfft)
 
     return f, t, sgr
@@ -180,12 +82,6 @@ def process_file(file):
 
         Reduce spectrum matrix precision (compress timeframes)
 
-    """
-    """
-        # cut signal in four, just for faster debugging
-    
-        start_and_size = file.data.size // 4
-        file.data = file.data[2 * start_and_size: 4 * start_and_size]
     """
 
     file.time_axis = np.linspace(0, len(file.data) / file.fs, num=len(file.data))
@@ -226,10 +122,10 @@ def do_query(q, s):
         print('query shorter than sentence')
         sys.exit(1)
 
-    scores_current = np.zeros(s_len)
-    # last q_len values (zeroes) are not used, but they make plotting easier
+    scores_current = np.zeros(int(np.ceil(s_len / step_size)))
+    # last few values (zeroes) are not used, but they make plotting easier
 
-    for j in range(0, max_index, 5):
+    for j in range(0, max_index, step_size):
         for i in range(0, q_len):
 
             q_frame = q.spectrum_data_no_dc[:, i]
@@ -240,11 +136,10 @@ def do_query(q, s):
             else:
                 continue
 
-            scores_current[j] += tmp
+            scores_current[j // step_size] += tmp
 
-        scores_current[j] /= q_len
+        scores_current[j // step_size] /= q_len
 
-    # print(s.name, max(scores_current))
     return scores_current
 
 
@@ -287,7 +182,7 @@ def extract_hits_from_query(query, sentence, peaks):
     for i in range(0, len(peaks)):
         peak = peaks[i]
 
-        hit_start = (peak * len(sentence.time_axis)) // len(sentence.spectrum_time)
+        hit_start = (peak * len(sentence.time_axis)) * step_size // len(sentence.spectrum_time)
         hit_length = len(query.data)
 
         sf.write('hits/' + '%s_%s_hit%d.wav' % (query.name, sentence.name, i),
@@ -317,15 +212,15 @@ def plot_results(file):
     plot_sgr.set_xlabel('t [s]')
     plot_sgr.set_ylabel('features')
     plot_sgr.set_xlim(left=0, right=max(file.time_axis))
-    # plot_sgr.set_yticks(np.arange(0, file.fs / 2 + 1, step=2000))
     plot_sgr.invert_yaxis()
 
     """
     Plot query-by-example scores 
-    todo change range after changing step size to 5
     """
-    query1_plot, = plot_scores.plot(file.spectrum_time, file.scores_q1)
-    query2_plot, = plot_scores.plot(file.spectrum_time, file.scores_q2)
+    spectrum_time_stepsize = file.spectrum_time[::step_size]
+
+    query1_plot, = plot_scores.plot(spectrum_time_stepsize, file.scores_q1)
+    query2_plot, = plot_scores.plot(spectrum_time_stepsize, file.scores_q2)
 
     plot_scores.set_xlabel('t [s]')
     plot_scores.set_ylabel('scores')
@@ -336,10 +231,9 @@ def plot_results(file):
     """
     Plotting peaks
     """
-    peaks1_plot, = plot_scores.plot(file.spectrum_time[file.peaks1], file.scores_q1[file.peaks1], "x")
-    peaks2_plot, = plot_scores.plot(file.spectrum_time[file.peaks2], file.scores_q2[file.peaks2], "*")
+    peaks1_plot, = plot_scores.plot(spectrum_time_stepsize[file.peaks1], file.scores_q1[file.peaks1], "x")
+    peaks2_plot, = plot_scores.plot(spectrum_time_stepsize[file.peaks2], file.scores_q2[file.peaks2], "*")
 
-    # fig.tight_layout()
     fig.show()
     fig.savefig(file.name + '.png')
 
@@ -347,6 +241,7 @@ def plot_results(file):
 """
 Main
 """
+step_size = 5  # using this one globally
 
 query1, query2 = read_wav_files('queries')
 sentences = read_wav_files('sentences')
@@ -366,8 +261,3 @@ extract_hits_all(sentences, query1, query2)
 
 for sentence in sentences:
     plot_results(sentence)
-
-"""
-TODO
-step size in QbE
-"""
