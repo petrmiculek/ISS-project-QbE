@@ -1,8 +1,10 @@
 import os
-import numpy as np
+import sys
+
 import matplotlib.pyplot as plt
+import numpy as np
 import soundfile as sf
-from scipy.signal import spectrogram, lfilter, freqz, tf2zpk
+from scipy.signal import spectrogram, find_peaks
 from scipy.stats import pearsonr
 
 """
@@ -29,38 +31,43 @@ class Record:
 
         self.data = None
         self.fs = None
-
-        self.data_aggr = None
-
         self.time_axis = None
 
         self.spectrum_freq = None
         self.spectrum_time = None
         self.spectrum_data = None
-        self.spectrum_data_no_dc = None
 
-        self.signal = None
+        self.spectrum_data_aggr_log = None
+        self.spectrum_data_no_dc = None
+        self.spectrum_data_aggr = None
 
         self.scores_q1 = None
         self.scores_q2 = None
 
+        self.peaks1 = None
+        self.peaks2 = None
 
-def prep_files():
-    curr_directory = os.listdir(os.getcwd())
-    curr_directory.sort()
+
+def read_wav_files(path):
+    cwd = os.getcwd()
+    curr_directory = os.listdir(cwd + '/' + path)
+
+    wav_files = []
 
     for curr_file in curr_directory:
-        if curr_file[-3:] != 'wav':
-            curr_directory.remove(curr_file)
+        if curr_file[-3:] == 'wav':
+            file = Record()
+            file.data, file.fs = sf.read(path + '/' + curr_file)
+            file.name = curr_file[:-4]
 
-    # TODO remove in submission
-    curr_directory.remove('Pipfile')
-    curr_directory.remove('.gitignore')
+            wav_files.append(file)
 
-    return curr_directory
+    return wav_files
 
 
 """
+# Tons of unused code
+
 def plot_signal_segment(data, fs, time_start, time_how_long):
     ""\"
         Plot segment of signal
@@ -137,83 +144,108 @@ def create_spectrogram_plot(f, t, sgr):
     plt.tight_layout()
 
     return plt
+    
+    
+def plot_score(query_name, sentence_name, sentence_time_axis, score):
+    # plt.tight_layout()
+
+    plt.plot(sentence_time_axis, score)
+
+    plt.gca().set_xlabel('Cas [s]')
+    plt.gca().set_ylabel('Podobnost [nevimco]')
+    plt.ylim([-0.1, 1])
+    plt.xlim(left=0)
+    plt.title('%s in %s' % (query_name, sentence_name))
+
+    plt.show()
+    return plt
 """
 
 
 def create_spectrogram(data, fs: int):
+    # predefined values given by assignment
     length_per_segment = int(0.025 * fs)  # 400 samples
     length_overlap = int(0.015 * fs)
     nfft = 512
+
+    # the do-it-all piece of code
     f, t, sgr = spectrogram(data, fs, nperseg=length_per_segment, noverlap=length_overlap, nfft=nfft)
-    # prevod na PSD
-    # (ve spektrogramu se obcas objevuji nuly, ktere se nelibi logaritmu, proto +1e-20)
 
     return f, t, sgr
 
 
-def read_file(currentFile):
+def process_file(file):
     """
-
-        Read signal
-
         Create spectrogram
 
         Reduce spectrum matrix precision (compress timeframes)
 
     """
-    file = Record()
-    file.data, file.fs = sf.read(currentFile)
+    """
+        # cut signal in four, just for faster debugging
+    
+        start_and_size = file.data.size // 4
+        file.data = file.data[2 * start_and_size: 4 * start_and_size]
+    """
+
+    file.time_axis = np.linspace(0, len(file.data) / file.fs, num=len(file.data))
 
     file.spectrum_freq, file.spectrum_time, file.spectrum_data = create_spectrogram(file.data, file.fs)
 
     # Delete DC signal
-
     file.spectrum_data_no_dc = np.delete(file.spectrum_data, 0, 0)
-    #                                   (Object, Index, Axis)
+    # param hints -->                   (Object, Index, Axis)
 
-    aggregate_file_data(file, file.spectrum_freq, file.spectrum_time, file.spectrum_data)
+    file.spectrum_data_aggr = aggregate_file_data(file)
+
+    file.spectrum_data_aggr_log = 10 * np.log10(file.spectrum_data_aggr + 1e-20)
 
     return file
 
 
-def process_file(file):
-    fig, (plot_signal, plot_sgr, plot_scores) = plt.subplots(3)
-
-    """
-    Plot signal
-    """
-    t = np.linspace(0, len(file.data) / file.fs, num=len(file.data))
-
-    plot_signal.plot(t, file.data)  # TODO file.time_axis
-    plot_signal.set_xlabel('$t [s]$')
-    plot_signal.set_ylim([-1, 1])
-    plot_signal.set_title(file.name)
-
-    """
-    Signal spectrogram 
-    """
-    sgr_log = 10 * np.log10(file.spectrum_data + 1e-20)
-
-    # sgr_freq -> Axis Y
-    # sgr_time -> Axis X
-
-    plot_sgr.pcolormesh(file.spectrum_time, file.spectrum_freq, sgr_log)
-    plot_sgr.set_xlabel('$t [s]$')
-    plot_sgr.set_ylabel('$f [Hz]$')
-
-    fig.tight_layout()
-    fig.show()
-
-
-def aggregate_file_data(file, sgr_freq, sgr_time, sgr_data):
+def aggregate_file_data(file):
     target_line_count = 16
-    divide_total_line_count_by = len(sgr_freq) // target_line_count
-    file.data_aggr = np.zeros((target_line_count, len(sgr_time)))
+    divide_total_line_count_by = len(file.spectrum_freq) // target_line_count
+    aggregated_data = np.zeros((target_line_count, len(file.spectrum_time)))
 
-    for t in range(0, len(sgr_time)):
+    for t in range(0, len(file.spectrum_time)):
         for i in range(0, target_line_count):
             for j in range(0, divide_total_line_count_by):
-                file.data_aggr[i, t] += sgr_data[i * divide_total_line_count_by + j, t]
+                aggregated_data[i, t] += file.spectrum_data_no_dc[i * divide_total_line_count_by + j, t]
+
+    return aggregated_data
+
+
+def do_query(q, s):
+    q_len = len(q.spectrum_data_aggr[0, :])
+    s_len = len(s.spectrum_data_aggr[0, :])
+
+    max_index = s_len - q_len - 1
+
+    if max_index < 0:
+        print('query shorter than sentence')
+        sys.exit(1)
+
+    scores_current = np.zeros(s_len)
+    # last q_len values (zeroes) are not used, but they make plotting easier
+
+    for j in range(0, max_index, 5):
+        for i in range(0, q_len):
+
+            q_frame = q.spectrum_data_no_dc[:, i]
+            s_frame = s.spectrum_data_no_dc[:, i + j]
+
+            if q_frame.any() and s_frame.any():
+                tmp, _ = pearsonr(q_frame, s_frame)
+            else:
+                continue
+
+            scores_current[j] += tmp
+
+        scores_current[j] /= q_len
+
+    # print(s.name, max(scores_current))
+    return scores_current
 
 
 def do_queries_by_example(q, all_sentences, query_number):
@@ -234,91 +266,108 @@ def do_queries_by_example(q, all_sentences, query_number):
             s.scores_q2 = current_score
         else:
             print('invalid query number')
-
-    # currently not needed, scores are saved within Record objects
-    return scores
+            sys.exit(2)
 
 
-def do_query(q, s):
-    q_len = len(q.spectrum_data_no_dc[0, :])
-    s_len = len(s.spectrum_data_no_dc[0, :])
-    # TODO propagating spectrum_data_no_dc name changes, finished here
-
-    max_index = s_len - q_len - 1
-
-    if max_index < 0:
-        print('query shorter than sentence')
-        return None
-
-    scores_current = np.zeros(s_len)
-    # last q_len values (zeroes) are not used, but they make plotting easier
-
-    for j in range(0, max_index):
-        for i in range(0, len(q.data)):
-
-            q_frame = q.data[:, i]
-            s_frame = s.data[:, i + j]
-
-            if q_frame.any() and s_frame.any():
-                tmp, _ = pearsonr(q_frame, s_frame)
-            else:
-                continue
-
-            if np.math.isnan(tmp):
-                continue
-
-            scores_current[j] += tmp
-
-        scores_current[j] /= q_len
-
-    print(s.name + ' max=:', max(scores_current), 'min:', min(scores_current))
-    return scores_current
+def find_peaks_in_scores(sentences):
+    min_height = 0.5
+    pointiness = 0.005
+    for file in sentences:
+        file.peaks1, properties1 = find_peaks(file.scores_q1, height=min_height, threshold=pointiness)
+        file.peaks2, properties2 = find_peaks(file.scores_q2, height=min_height, threshold=pointiness)
 
 
-def plot_score(query_name, sentence_name, sentence_time_axis, score):
-    # plt.tight_layout()
+def extract_hits_all(sentences, query1, query2):
+    for sentence in sentences:
+        extract_hits_from_query(query1, sentence, sentence.peaks1)
+        extract_hits_from_query(query2, sentence, sentence.peaks2)
 
-    plt.plot(sentence_time_axis, score)
 
-    plt.gca().set_xlabel('Cas [s]')
-    plt.gca().set_ylabel('Podobnost [nevimco]')
-    plt.ylim([-0.1, 1])
-    plt.title('%s in %s' % (query_name, sentence_name))
+def extract_hits_from_query(query, sentence, peaks):
+    for i in range(0, len(peaks)):
+        peak = peaks[i]
 
-    # plt.show()
-    return plt
+        hit_start = (peak * len(sentence.time_axis)) // len(sentence.spectrum_time)
+        hit_length = len(query.data)
+
+        sf.write('hits/' + '%s_%s_hit%d.wav' % (query.name, sentence.name, i),
+                 sentence.data[hit_start:hit_start + hit_length], sentence.fs)
+
+
+def plot_results(file):
+    fig, (plot_signal, plot_sgr, plot_scores) = plt.subplots(3, 1)
+
+    """
+    Plot signal
+    """
+
+    plot_signal.plot(file.time_axis, file.data)
+    plot_signal.set_xlabel('t [s]')
+    plot_signal.set_ylabel('signal')
+    plot_signal.set_ylim([-1, 1])
+    plot_signal.set_xlim(left=0, right=max(file.time_axis))
+    plot_signal.set_title(file.name)
+
+    """
+    Plot signal spectrogram 
+    """
+    features_x_axis = np.arange(0, 16)
+
+    plot_sgr.pcolormesh(file.spectrum_time, features_x_axis, file.spectrum_data_aggr_log)
+    plot_sgr.set_xlabel('t [s]')
+    plot_sgr.set_ylabel('features')
+    plot_sgr.set_xlim(left=0, right=max(file.time_axis))
+    # plot_sgr.set_yticks(np.arange(0, file.fs / 2 + 1, step=2000))
+    plot_sgr.invert_yaxis()
+
+    """
+    Plot query-by-example scores 
+    todo change range after changing step size to 5
+    """
+    query1_plot, = plot_scores.plot(file.spectrum_time, file.scores_q1)
+    query2_plot, = plot_scores.plot(file.spectrum_time, file.scores_q2)
+
+    plot_scores.set_xlabel('t [s]')
+    plot_scores.set_ylabel('scores')
+    plot_scores.set_ylim([-0.1, 1])
+    plot_scores.set_xlim(left=0, right=max(file.time_axis))
+    plt.legend([query1_plot, query2_plot], ['instruments', 'reorganization'])
+
+    """
+    Plotting peaks
+    """
+    peaks1_plot, = plot_scores.plot(file.spectrum_time[file.peaks1], file.scores_q1[file.peaks1], "x")
+    peaks2_plot, = plot_scores.plot(file.spectrum_time[file.peaks2], file.scores_q2[file.peaks2], "*")
+
+    # fig.tight_layout()
+    fig.show()
+    fig.savefig(file.name + '.png')
 
 
 """
 Main
 """
 
+query1, query2 = read_wav_files('queries')
+sentences = read_wav_files('sentences')
+
+process_file(query1)
+process_file(query2)
+
+for current_file in sentences:
+    process_file(current_file)
+
+do_queries_by_example(query1, sentences, 1)
+do_queries_by_example(query2, sentences, 2)
+
+find_peaks_in_scores(sentences)
+
+extract_hits_all(sentences, query1, query2)
+
+for sentence in sentences:
+    plot_results(sentence)
+
 """
 TODO
 step size in QbE
 """
-query1_name = 'q1.wav'
-query2_name = 'q2.wav'
-
-sentences = []  # list of Record objects
-query1 = Record()
-query2 = Record()
-
-curr_dir = prep_files()
-
-for current_file in curr_dir:
-    if current_file == query1_name:
-        query1 = read_file(current_file)
-    elif current_file == query2_name:
-        query2 = read_file(current_file)
-    else:
-        sentences.append(read_file(current_file))
-
-scores1 = do_queries_by_example(query1, sentences, 1)
-# scores2 = do_queries_by_example(query2, sentences, 2)
-
-# for i in sentences:
-#     show all their plots
-
-for m in range(0, len(scores1)):
-    plot_score(query1.name, sentences[m].name, sentences[m].time_axis, scores1[m])
