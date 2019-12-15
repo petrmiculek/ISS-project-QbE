@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import os
 import sys
 
@@ -127,14 +128,10 @@ def do_query(q, s):
 
     for j in range(0, max_index, step_size):
         for i in range(0, q_len):
-
             q_frame = q.spectrum_data_no_dc[:, i]
             s_frame = s.spectrum_data_no_dc[:, i + j]
 
-            if q_frame.any() and s_frame.any():
-                tmp, _ = pearsonr(q_frame, s_frame)
-            else:
-                continue
+            tmp, _ = pearsonr(q_frame, s_frame)
 
             scores_current[j // step_size] += tmp
 
@@ -235,12 +232,13 @@ def plot_results(file):
     peaks2_plot, = plot_scores.plot(spectrum_time_stepsize[file.peaks2], file.scores_q2[file.peaks2], "*")
 
     fig.show()
-    fig.savefig(file.name + '.png')
+    fig.savefig('plots/' + file.name + '.png')
 
 
 """
 Main
 """
+
 step_size = 5  # using this one globally
 
 query1, query2 = read_wav_files('queries')
