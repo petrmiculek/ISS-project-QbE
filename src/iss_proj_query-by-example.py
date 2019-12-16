@@ -50,15 +50,20 @@ class Record:
 
 
 def read_wav_files(path):
-    cwd = os.getcwd()
-    curr_directory = os.listdir(cwd + '/' + path)
+    """
+    Read in files
+    """
+
+    full_path = os.path.join(os.getcwd(), os.path.join(os.pardir, path))
+
+    curr_directory = os.listdir(full_path)
 
     wav_files = []
 
     for curr_file in curr_directory:
         if curr_file[-3:] == 'wav':
             file = Record()
-            file.data, file.fs = sf.read(path + '/' + curr_file)
+            file.data, file.fs = sf.read(os.path.join(full_path, curr_file))
             file.name = curr_file[:-4]
 
             wav_files.append(file)
@@ -67,6 +72,10 @@ def read_wav_files(path):
 
 
 def create_spectrogram(data, fs: int):
+    """
+        Create spectrogram
+        Task 3
+    """
     # predefined values given by assignment
     length_per_segment = int(0.025 * fs)  # 400 samples
     length_overlap = int(0.015 * fs)
@@ -79,10 +88,9 @@ def create_spectrogram(data, fs: int):
 
 def process_file(file):
     """
-        Create spectrogram
+        Get spectrogram
 
-        Reduce spectrum matrix precision (compress timeframes)
-
+        Get reduced spectrum matrix precision (compress timeframes)
     """
 
     file.time_axis = np.linspace(0, len(file.data) / file.fs, num=len(file.data))
@@ -101,6 +109,10 @@ def process_file(file):
 
 
 def aggregate_file_data(file):
+    """
+        Reduce spectrum matrix precision
+        Task 4
+    """
     target_line_count = 16
     divide_total_line_count_by = len(file.spectrum_freq) // target_line_count
     aggregated_data = np.zeros((target_line_count, len(file.spectrum_time)))
@@ -114,6 +126,10 @@ def aggregate_file_data(file):
 
 
 def do_query(q, s):
+    """
+        Do one search (query, sentence)
+        Task 5
+    """
     q_len = len(q.spectrum_data_aggr[0, :])
     s_len = len(s.spectrum_data_aggr[0, :])
 
@@ -141,6 +157,10 @@ def do_query(q, s):
 
 
 def do_queries_by_example(q, all_sentences, query_number):
+    """
+        Get search results for all sentences (but not for all queries)
+        Task 5
+    """
     scores = []
 
     s_count = len(all_sentences)
@@ -162,6 +182,11 @@ def do_queries_by_example(q, all_sentences, query_number):
 
 
 def find_peaks_in_scores(sentences):
+    """
+        Evaluate scores of query search
+        --> find peaks in scores data
+        Task 7
+    """
     min_height = 0.5  # alespon polovicni "jistota" = korelace
     pointiness = 0.005  # spise empiricka hodnota
     for file in sentences:
@@ -170,27 +195,40 @@ def find_peaks_in_scores(sentences):
 
 
 def extract_hits_all(sentences, query1, query2):
+    """
+        Process saving segments of original record
+        that correspond to a query hit
+        Task 8
+    """
     for sentence in sentences:
         extract_hits_from_query(query1, sentence, sentence.peaks1)
         extract_hits_from_query(query2, sentence, sentence.peaks2)
 
 
 def extract_hits_from_query(query, sentence, peaks):
+    """
+        Save a segment of original record
+        corresponding to a query hit
+    """
     for i in range(0, len(peaks)):
         peak = peaks[i]
 
         hit_start = (peak * len(sentence.time_axis)) * step_size // len(sentence.spectrum_time)
         hit_length = len(query.data)
 
-        sf.write('hits/' + '%s_%s_hit%d.wav' % (query.name, sentence.name, i),
+        sf.write('../' + 'hits/' + '%s_%s_hit%d.wav' % (query.name, sentence.name, i),
                  sentence.data[hit_start:hit_start + hit_length], sentence.fs)
 
 
 def plot_results(file):
+    """
+        Plot all results
+        Task 6
+    """
     fig, (plot_signal, plot_sgr, plot_scores) = plt.subplots(3, 1, figsize=(8, 6))
 
     """
-    Plot signal
+        Plot signal
     """
 
     plot_signal.plot(file.time_axis, file.data)
@@ -201,7 +239,7 @@ def plot_results(file):
     plot_signal.set_title(file.name)
 
     """
-    Plot signal spectrogram 
+        Plot signal spectrogram 
     """
     features_x_axis = np.arange(0, 16)
 
@@ -212,7 +250,7 @@ def plot_results(file):
     plot_sgr.invert_yaxis()
 
     """
-    Plot query-by-example scores 
+        Plot query-by-example scores 
     """
     spectrum_time_stepsize = file.spectrum_time[::step_size]
 
@@ -228,7 +266,9 @@ def plot_results(file):
     legend_texts = ['instruments (q1)', 'reorganization (q2)']
 
     """
-    Plotting peaks and hits
+        Plot peaks and hits, if any
+        peak = beginning of query hit (point -> highest score)
+        hit = length of query hit (line -> duration of query)
     """
 
     if file.peaks1 is not None and len(file.peaks1) > 0:
@@ -260,7 +300,7 @@ def plot_results(file):
                loc='upper left')
 
     fig.show()
-    fig.savefig('plots/' + file.name + '.png')
+    fig.savefig('../' + 'plots/' + file.name + '.png')
 
 
 """
